@@ -7,17 +7,17 @@ import configparser
 import psutil
 
 config = configparser.ConfigParser()
-config.read('config.ini')
+config.read('/var/scripts/system_logger/config.ini')
 
 def convert_to_megabytes(val):
-    if 'Ki' in val:
-        val = val.split('Ki')[0]
+    if 'K' in val:
+        val = val.split('K')[0]
         val = float(val) * 0.001
-    elif 'Mi' in val:
-        val = val.split('Mi')[0]
+    elif 'M' in val:
+        val = val.split('M')[0]
         val = float(val)
-    elif 'Gi' in val:
-        val = val.split('Gi')[0]
+    elif 'G' in val:
+        val = val.split('G')[0]
         val = float(val) * 1000
     else:
         val = 0.01
@@ -55,8 +55,6 @@ def create_connection():
 
 
 def check_filesystem(client):
-    
-    print('.')
     filesystem = os.popen('df -h').read()
     now = datetime.datetime.now().utcnow()
 
@@ -80,15 +78,13 @@ def check_filesystem(client):
             used_percent = i[4].split('%')[0] # Remove % sign from used_percent
 
             row = [config['MACHINE']['NAME'], i[0], size, used, availible, int(used_percent), i[5], now]
-            print(row)
             data.append(row)
         except IndexError:
             continue
     client.insert('vm_filesystem', data, column_names=['vm', 'device', 'size', 'used', 'available', 'used_percent', 'mounted', 'time'])
-    time.sleep(2)
+
 
 def check_usage(client):
-    
     now = datetime.datetime.now().utcnow()
     data = []
 
@@ -97,14 +93,14 @@ def check_usage(client):
     v_mem = psutil.virtual_memory().percent
 
     row = [config['MACHINE']['NAME'], cpu, swap_mem, v_mem, now]
-    print(row)
     data.append(row)
 
     client.insert('vm_usage', data, column_names=['vm', 'cpu_usage', 'swap_mem', 'v_mem', 'time'])
-    time.sleep(2)
 
 client = create_connection()
 
-while True:
-    check_filesystem(client)
-    check_usage(client)
+
+check_filesystem(client)
+check_usage(client)
+
+client.close()
