@@ -6,6 +6,19 @@ import re
 import configparser
 import psutil
 
+statuses = {
+    'active (running)': 0,
+    'active (exited)': 1,
+    'active (waiting)': 2,
+    'inactive': 3,
+    'enabled': 4,
+    'disabled': 5,
+    'static': 6,
+    'masked': 7,
+    'alias': 8,
+    'linked': 9
+}
+
 config = configparser.ConfigParser()
 config.read('/var/scripts/system_logger/config.ini')
 
@@ -47,6 +60,15 @@ def create_connection():
                                                 cpu_usage Float64,
                                                 swap_mem Float64,
                                                 v_mem Float64,
+                                                time DateTime) 
+                            ENGINE MergeTree
+                            ORDER BY time''')
+
+    clickhouse_client.command('''CREATE TABLE IF NOT EXISTS vm_healthcheck
+                                                (vm String,
+                                                service String,
+                                                active UInt32,
+                                                container UInt32,
                                                 time DateTime) 
                             ENGINE MergeTree
                             ORDER BY time''')
@@ -97,10 +119,54 @@ def check_usage(client):
 
     client.insert('vm_usage', data, column_names=['vm', 'cpu_usage', 'swap_mem', 'v_mem', 'time'])
 
+def check_service_status(machine, service, client):
+    now = now = datetime.datetime.now().utcnow()
+    data = []
+
+    command_active = f'machinectl shell {machine} /usr/bin/systemctl status {service} & exit'
+    # command_status = f'machinectl shell {machine} /usr/bin/systemctl status {service} | grep Status'
+    command_container = f'systemctl status systemd-nspawn@{machine}.service'
+    active_output = os.popen(command_active).read()
+    container_output = os.popen(command_container).read()
+    # status_output = os.popen(command_status).read()
+
+    for i in statuses:
+        if i in container_output:
+            container = statuses[i]
+            break
+        else:
+            container = 404
+    
+    for i in statuses:
+        if i in active_output:
+            active = statuses[i]
+            break
+        else:
+            active = 404
+
+
+    row = [config['MACHINE']['NAME'], machine, active, container, now]
+    data.append(row)
+
+    client.insert('vm_healthcheck', data, column_names=['vm', 'service', 'active', 'container', 'time'])
+
+def check_machines(client):
+    machines = {
+        'redis': 'redis',
+        'redis-cache': 'redis',
+        'redis3': 'redis-server',
+        'rabbitmq': 'rabbitmq-server'
+    }
+
+    for i in machines:
+        check_service_status(i, machines[i], client)
+
+
 client = create_connection()
 
 
 check_filesystem(client)
 check_usage(client)
+check_machines(client)
 
 client.close()
